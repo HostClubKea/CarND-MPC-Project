@@ -1,6 +1,113 @@
 # CarND-Controls-MPC
 Self-Driving Car Engineer Nanodegree Program
 
+
+## Project Description
+The purpose of this project is to develop a Model Predictive Controller (MPC) to steer a car around a track in a simulator. The simulator provides current state of the car - position, speed, heading direction and several closest waypoints of the path. As a result controller should return throotle and steering value.
+### The Vehicle Model
+The vehicle model used in this project is a kinematic bicycle model. It neglects all dynamical effects such as inertia, friction and torque. The model takes changes of heading direction into account and is thus non-linear. The model used consists of the following equations
+```
+  x(i+1) = x(i) + v(i) * cos(psi(i)) * dt
+  y(i+1) = y(i) + v(i) * sin(psi(i)) * dt
+  psi(i+1) = psi(i) - v(i)*delta(i)/Lf*dt
+  v(i+1) = v(i) + a(i) * dt
+  cte(i+1) = (f(i) - y(i)) + v(i)*sin(epsi(i))*dt
+  epsi(i+1) = (psi(i) - psides(i)) + v(i) * delta(i)/Lf * dt
+```
+Here, `x,y` denote the position of the car, `psi` the heading direction, `v` its velocity `cte` the cross-track error and `epsi` the orientation error. `Lf` is the distance between the center of mass of the vehicle and the front wheels and affects the maneuverability. The vehicle model can be found in the class `FG_eval`. 
+
+### Polynomial Fitting and MPC Preprocessing
+
+The simulator sends its coordinates to the MPC controller in the global Map coordinates. These waypoints are converted into Vehicle's coordinates using a transform. This is implemented in `map2car` in `utils.hpp`. The transform essentially shifts the origin to the vehicle's current position, and then applies a 2D rotation to align x-axis to the heading of the vehicle. 
+```
+ X =   cos(psi) * (ptsx[i] - x) + sin(psi) * (ptsy[i] - y);
+ Y =  -sin(psi) * (ptsx[i] - x) + cos(psi) * (ptsy[i] - y);  
+```
+where `X,Y` denote coordinates in the vehicle coordinate system. Note that the initial position of the car and heading direction are always zero in this frame. The state of the car in the vehicle cordinate system is 
+```
+          state << 0, 0, 0, v, cte, epsi, steer_angle, acceleration;
+```
+initially. 
+
+
+### Model Predictive Control with Latency
+In this project we also need to take into account latency which simulates that car does not actuate the commands instantly. In the code it is simulated by
+```  
+   this_thread::sleep_for(chrono::milliseconds((int)(latency * 1000)));
+```  
+But real latency is greater then 100 ms, because you should also take into account time you need to calculate actuators. For 20 steps it takes on my laptop 110 ms (average), for 10 steps 60 ms (average). So instead of taking into account only 100 ms lattency I take 100ms plus average time needed to solve optimization problem
+When delays are not properly accounted for oscillations and/or bad trajectories can occur - for speed 100 mph and latency 200ms you car would travel 8 meters without control signal.
+
+There are at least two common aproaches to solve the latency problems:
+1. Constraining the controls to the values of the previous iteration for the duration of the latency. Thus the optimal trajectory is computed starting from the time after the latency period. 
+I see big disadvantage in this method as you restricted in choosing step time to be some fraction of latency time 
+2. Estimate new state of the car after latency time pass based on it's current state. 
+
+I choose second method, the only problem was that current state of the car didn't contains acceleration value. On low latency for estimation could be used throttle value instead, but I decided to be more precise and calculate acceleration based on previous state and time difference between previous and current states
+```
+   acceleration = (v - v_prev)/dt;
+``` 
+Calculation of new state after latency
+```
+    x += v * real_latency;
+    y = 0.0;
+    psi += v * (-steer_angle) / Lf * real_latency;
+    cte += v * sin(epsi) * latency;
+    epsi += + v * (-steer_angle) / Lf * real_latency;
+    v += acceleration * real_latency;
+```
+
+### Timestep Length and Elapsed Duration (N & dt)
+The time `T=N dt` defines the prediction horizon. It shouldn't be too short or too long. If its too long it increases calculation time. Also if it's too short you would sharp turns which leads to instability and oscilations.
+With `T=2s` and selected coefficients for cost function car trajectory have very smooth recovery of trajectory after turns.
+
+For `dt` I think you should choose values close to interval you MPC controller have been called, in my case it's `200ms`. Choosing lower value
+ will only increase calculating solution time and I don't think it gives you any advantage as you wouldn't bw able to use intermediate actuators values.
+ 
+`N=10` which gives `T=2s`. In this case solving optimization task takes `60ms`.
+
+### Cost Function Parameters
+The cost of a trajectory of length N is computed as follows
+```
+        vector<double> weights = {0.1, 10.0, 0.1, 4500.0, 1.0, 10.0, 0.0};
+
+        // The part of the cost based on the reference state.
+        for (size_t t = 0; t < N; t++) {
+            fg[0] += weights[0]*CppAD::pow(vars[cte_start + t], 2);
+            fg[0] += weights[1]*CppAD::pow(vars[epsi_start + t], 2);
+            fg[0] += weights[2]*CppAD::pow(vars[v_start + t] - ref_v, 2);
+        }
+        // Minimize the use of actuators.
+        for (size_t t = 0; t < N - 1; t++) {
+            fg[0] += weights[3]*CppAD::pow(vars[delta_start + t], 2);
+            fg[0] += weights[4]*CppAD::pow(vars[a_start + t], 2);
+        }
+        // Minimize the value gap between sequential actuations.
+        for (size_t t = 0; t < N - 2; t++) {
+            fg[0] += weights[5]*CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
+            fg[0] += weights[6]*CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
+        }
+```
+
+Another part of cost function is using different reference speed depending on trajectory. If there are sharp turn at some distance ahead reference speed is decreased.
+
+```
+     double rx = 20;
+     double radius = abs(pow(1 + pow(polyevalDer1(coeffs, rx), 2), 1.5)/ polyevalDer2(coeffs, rx));
+     // If radius of the turn is less then 50m
+     if(radius < 50){
+         ref_v = ref_v_original / 1.5;
+     }
+```
+This allows car to reach up to `107 mph` on straight part of the track and don't miss sharp turns because of centrifugal force. 
+
+In the graph shown steering (blue) and (throttle) values accross one lap. We can see that steering is very smooth which helps to avoid any oscillations. 
+![MPC](steering_throttle.png  "MPC")
+
+###Final result
+[![Final video](https://img.youtube.com/vi/Et-5Nxt2SPQ/0.jpg)](https://www.youtube.com/watch?v=Et-5Nxt2SPQ "Final video")
+
+
 ---
 
 ## Dependencies
