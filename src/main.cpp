@@ -154,7 +154,7 @@ int main() {
         std::cout << "Connected!!!" << std::endl;
     });
 
-    h.onDisconnection([&h, &file](uWS::WebSocket <uWS::SERVER> ws, int code, char *message, size_t length) {
+    h.onDisconnection([&h/*, &file*/](uWS::WebSocket <uWS::SERVER> ws, int code, char *message, size_t length) {
         ws.close();
         //Close log file on disconnect
        // file.close();
