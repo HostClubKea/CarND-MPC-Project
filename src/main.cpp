@@ -30,7 +30,7 @@ int main() {
 
         double latency = 0.1;
 
-        vector<double> weights = {0.1, 10.0, 0.1, 4500.0, 1.0, 10.0, 0.0};
+        vector<double> weights = {0.2, 10.0, 0.1, 4500.0, 1.0, 10.0, 0.0};
 
         // "42" at the start of the message means there's a websocket message event.
         // The 4 signifies a websocket message

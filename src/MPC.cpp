@@ -184,6 +184,8 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs, double 
     double radius = abs(pow(1 + pow(polyevalDer1(coeffs, rx), 2), 1.5)/ polyevalDer2(coeffs, rx));
 
     if(radius < 50){
+        ref_v = ref_v_original / 1.7;
+    } else if(radius < 60) {
         ref_v = ref_v_original / 1.5;
     } else {
         ref_v = ref_v_original;
@@ -212,29 +214,16 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs, double 
     vars[v_start]    = v;
     vars[cte_start]  = cte;
     vars[epsi_start] = epsi;
-    vars[a_start]    = acc;
-    vars[delta_start] = steer;
 
     Dvector vars_lowerbound(n_vars);
     Dvector vars_upperbound(n_vars);
     // TODO: Set lower and upper limits for variables.
     // Set all non-actuators upper and lowerlimits
     // to the max negative and positive values.
-    for (i = 0; i < v_start; i++) {
+    for (i = 0; i < delta_start; i++) {
         vars_lowerbound[i] = -1.0e19;
         vars_upperbound[i] = 1.0e19;
     }
-
-    for (i = v_start; i < cte_start; i++) {
-        vars_lowerbound[i] = 0;
-        vars_upperbound[i] = 200;
-    }
-
-    for (i = cte_start; i < delta_start; i++) {
-        vars_lowerbound[i] = -1.0e19;
-        vars_upperbound[i] = 1.0e19;
-    }
-
 
     // The upper and lower limits of delta are set to -25 and 25
     // degrees (values in radians).
