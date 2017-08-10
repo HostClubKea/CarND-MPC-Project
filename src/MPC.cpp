@@ -184,9 +184,9 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs, double 
     double radius = abs(pow(1 + pow(polyevalDer1(coeffs, rx), 2), 1.5)/ polyevalDer2(coeffs, rx));
 
     if(radius < 50){
-        ref_v = ref_v_original / 1.7;
-    } else if(radius < 60) {
-        ref_v = ref_v_original / 1.5;
+        ref_v = ref_v_original / 1.5;//1.7;
+//    } else if(radius < 60) {
+//        ref_v = ref_v_original / 1.5;
     } else {
         ref_v = ref_v_original;
     }
