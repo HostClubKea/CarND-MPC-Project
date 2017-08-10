@@ -65,7 +65,7 @@ int main() {
                     double cte = polyeval(coeffs, 0); // cross treck error
                     double epsi = -atan(polyevalDer1(coeffs, 0));  //orientation error
                     // x, y, psi = 0  because we are in the car coordinate system
-                    state << x, y, psi, v, cte, epsi, steer_angle, acceleration;
+                    state << 0, 0, 0, v, cte, epsi, steer_angle, acceleration;
 
                     // call MPC solver
                     auto vars = mpc.Solve(state, coeffs, latency, weights);
@@ -91,8 +91,6 @@ int main() {
                         mpc_x_vals.push_back(vars[i]);
                         mpc_y_vals.push_back(vars[i + 1]);
                     }
-
-
                     //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
                     // the points in the simulator are connected by a Green line
 
@@ -128,7 +126,6 @@ int main() {
                     //
                     // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
                     // SUBMITTING.
-                    //this_thread::sleep_for(chrono::milliseconds(0));
                     this_thread::sleep_for(chrono::milliseconds((int)(latency * 1000)));
                     ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
                 }
